@@ -20,6 +20,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -49,6 +50,8 @@ public class AccountControllerTest {
     private MockMvc mockMvc;
     @MockitoBean
     private AccountService accountService;
+    @MockitoBean
+    private RestClient restClient;
 
     private static AccountCreateRequest createRequest() {
         return new AccountCreateRequest(10L, "ACC-001");

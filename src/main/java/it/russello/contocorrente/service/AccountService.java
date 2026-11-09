@@ -1,6 +1,5 @@
 package it.russello.contocorrente.service;
 
-import it.russello.contocorrente.client.InternalClient;
 import it.russello.contocorrente.dto.AccountBalanceResponse;
 import it.russello.contocorrente.dto.AccountCreateRequest;
 import it.russello.contocorrente.dto.AccountResponse;
@@ -21,6 +20,14 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.parameters.P;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
+import java.util.List;
+import java.util.Map;
+import org.springframework.web.client.HttpClientErrorException;
 
 import java.math.BigDecimal;
 
@@ -30,7 +37,7 @@ public class AccountService {
     private final AccountRepository accountRepository;
     private final PersonRepository personRepository;
     private final AccountSecurity accountSecurity;
-    private final InternalClient internalClient;
+    private final RestClient restClient;
 
     @Value("${clients.user.base-url}")
     private String userBaseUrl;
@@ -45,7 +52,7 @@ public class AccountService {
         if (!accountSecurity.isAdmin() && !currentPersonId.equals(ownerPersonId)) {
             throw new AccessDeniedException("Puoi creare un conto soltanto per te stesso");
         }
-        if (!internalClient.check(userBaseUrl, "/internal/persons/{id}/exists", ownerPersonId)) {
+        if (!personExists(ownerPersonId)) {
             throw new ApiException(HttpStatus.NOT_FOUND, "PERSON_NOT_FOUND", "Persona non trovata");
         }
         Person person = personRepository.getReferenceById(ownerPersonId);
@@ -109,7 +116,7 @@ public class AccountService {
                     "ACCOUNT_BALANCE_NOT_ZERO",
                     "Conto può essere eliminato solo con saldo 0");
         }
-        if (internalClient.check(transactionBaseUrl, "/internal/transactions/by-account/{id}/exists", id)) {
+        if (hasTransactions(id)) {
             throw new ApiException(HttpStatus.CONFLICT,
                     "ACCOUNT_HAS_TRANSACTION",
                     "Il conto ha movimenti associati e non può essere eliminato");
@@ -138,6 +145,64 @@ public class AccountService {
         return accountRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ApiException(
                         HttpStatus.NOT_FOUND, "ACCOUNT_NOT_FOUND", "Conto non trovato"));
+    }
+
+    private <T> T getRemoteBody(String url, Class<T> bodyType, Object... uriVariables) {
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (!(authentication instanceof JwtAuthenticationToken jwt)
+                || !jwt.isAuthenticated()) {
+            throw new AuthenticationCredentialsNotFoundException(
+                    "Autenticazione JWT richiesta");
+        }
+
+        try {
+            T result = restClient.get()
+                    .uri(url, uriVariables)
+                    .headers(headers -> headers.setBearerAuth(jwt.getToken().getTokenValue()))
+                    .retrieve()
+                    .body(bodyType);
+            if (result != null) {
+                return result;
+            }
+        } catch (HttpClientErrorException.NotFound ex) {
+        throw ex;
+        } catch (RestClientException ex) {
+            throw upstreamUnavailable();
+        }
+
+        throw upstreamUnavailable();
+    }
+
+    private ApiException upstreamUnavailable() {
+        return new ApiException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "UPSTREAM_UNAVAILABLE",
+                "Servizio remoto non disponibile");
+    }
+
+    private boolean personExists(Long id) {
+        try {
+            Map<?, ?> person = accountSecurity.isAdmin()
+                    ? getRemoteBody(userBaseUrl + "/api/person/{id}", Map.class, id)
+                    : getRemoteBody(userBaseUrl + "/api/person/my_profile", Map.class);
+
+            if (person.get("id") instanceof Number personId) {
+                return id.equals(personId.longValue());
+            }
+            throw upstreamUnavailable();
+        } catch (HttpClientErrorException.NotFound ex) {
+            return false;
+        }
+    }
+
+    private boolean hasTransactions(Long id) {
+        try {
+            return !getRemoteBody(
+                    transactionBaseUrl + "/api/account/{id}/transaction", List.class, id)
+                    .isEmpty();
+        } catch (HttpClientErrorException.NotFound ex) {
+            throw upstreamUnavailable();
+        }
     }
 
 }

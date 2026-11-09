@@ -1,7 +1,10 @@
 package it.russello.contocorrente.controller;
 
-import it.russello.contocorrente.client.InternalClient;
+import org.springframework.web.client.RestClient;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.jayway.jsonpath.JsonPath;
@@ -17,12 +20,17 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
 
 import static it.russello.contocorrente.support.TestJwt.admin;
 import static org.junit.jupiter.api.Assertions.*;
@@ -42,18 +50,20 @@ public class AccountControllerIT {
     @Autowired
     private EntityManager entityManager;
     @MockitoBean
-    private InternalClient internalClient;
+    private RestClient restClient;
 
     private Person person;
 
+    private RestClient.RequestHeadersUriSpec<?> uriSpec;
+
     @BeforeEach
     void setUp() {
+        uriSpec = mock(RestClient.RequestHeadersUriSpec.class);
         person = new Person("Mario", "Rossi", LocalDate.of(1990, 5, 15));
         person.setUsername("mario.rossi");
         person.setPassword("passwmario");
         personRepository.saveAndFlush(person);
-        when(internalClient.check("http://user.test",
-                "/internal/persons/{id}/exists", person.getId())).thenReturn(true);
+        when(stubGet("http://user.test/api/person/{id}", person.getId()).body(Map.class)).thenReturn(Map.of("id", person.getId()));
     }
 
     @Test
@@ -88,6 +98,10 @@ public class AccountControllerIT {
 
     @Test
     void createAccountForMissingPerson() throws Exception {
+        var response = stubGet("http://user.test/api/person/{id}", Long.MAX_VALUE);
+        when(response.body(Map.class)).thenThrow(HttpClientErrorException.create(
+                HttpStatus.NOT_FOUND, "Not Found", HttpHeaders.EMPTY, new byte[0], null));
+
         long before = accountRepository.count();
         mockMvc.perform(post("/api/account")
                         .with(admin(person.getId()))
@@ -236,6 +250,8 @@ public class AccountControllerIT {
         Long id = account.getId();
         long counterBefore = accountRepository.count();
         entityManager.clear();
+        when(stubGet("http://transaction.test/api/account/{id}/transaction", id).body(List.class)).thenReturn(List.of());
+
         mockMvc.perform(delete("/api/account/{id}", id).with(admin(person.getId())))
                 .andExpect(status().isNoContent())
                 .andExpect(content().string(""));
@@ -285,9 +301,7 @@ public class AccountControllerIT {
     @Test
     void accountWithTransactionsCannotBeDeleted() throws Exception {
         Account account = accountRepository.saveAndFlush(new Account(person, "WITH-MOVEMENTS"));
-        when(internalClient.check("http://transaction.test",
-                "/internal/transactions/by-account/{id}/exists", account.getId()))
-                .thenReturn(true);
+        when(stubGet("http://transaction.test/api/account/{id}/transaction", account.getId()).body(List.class)).thenReturn(List.of(Map.of("id", 1L)));
 
         mockMvc.perform(delete("/api/account/{id}", account.getId())
                         .with(admin(person.getId())))
@@ -296,5 +310,15 @@ public class AccountControllerIT {
 
         entityManager.clear();
         assertTrue(accountRepository.existsById(account.getId()));
+    }
+
+    private RestClient.ResponseSpec stubGet(String url, Object... uriVariables) {
+        doReturn(uriSpec).when(restClient).get();
+        RestClient.RequestHeadersSpec<?> request = mock(RestClient.RequestHeadersSpec.class);
+        RestClient.ResponseSpec response = mock(RestClient.ResponseSpec.class);
+        doReturn(request).when(uriSpec).uri(url, uriVariables);
+        doReturn(request).when(request).headers(any());
+        when(request.retrieve()).thenReturn(response);
+        return response;
     }
 }

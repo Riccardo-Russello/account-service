@@ -1,6 +1,10 @@
 package it.russello.contocorrente.service;
 
-import it.russello.contocorrente.client.InternalClient;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestClient;
 import it.russello.contocorrente.dto.AccountBalanceResponse;
 import it.russello.contocorrente.dto.AccountCreateRequest;
 import it.russello.contocorrente.dto.AccountResponse;
@@ -11,6 +15,7 @@ import it.russello.contocorrente.exception.ApiException;
 import it.russello.contocorrente.repository.AccountRepository;
 import it.russello.contocorrente.repository.PersonRepository;
 import it.russello.contocorrente.security.AccountSecurity;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -21,6 +26,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.*;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -29,6 +35,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -43,7 +50,7 @@ public class AccountServiceTest {
     @Mock
     private PersonRepository personRepository;
     @Mock
-    private InternalClient internalClient;
+    private RestClient restClient;
     @Mock
     private AccountSecurity accountSecurity;
     @InjectMocks
@@ -51,17 +58,35 @@ public class AccountServiceTest {
 
     private static final String USER_URL = "http://user.test";
     private static final String TRANSACTION_URL = "http://transaction.test";
-    private static final String PERSON_EXISTS = "/internal/persons/{id}/exists";
-    private static final String ACCOUNT_TRANSACTIONS = "/internal/transactions/by-account/{id}/exists";
+    private static final String PERSON_BY_ID = "/api/person/{id}";
+    private static final String MY_PROFILE = "/api/person/my_profile";
+    private static final String ACCOUNT_TRANSACTIONS = "/api/account/{id}/transaction";
+
+    private RestClient.RequestHeadersUriSpec<?> uriSpec;
 
     @BeforeEach
     void configureClientUrls() {
+        uriSpec = mock(RestClient.RequestHeadersUriSpec.class);
         ReflectionTestUtils.setField(accountService, "userBaseUrl", USER_URL);
         ReflectionTestUtils.setField(accountService, "transactionBaseUrl", TRANSACTION_URL);
+        var jwt = Jwt.withTokenValue("test-token")
+                .header("alg", "HS256")
+                .subject("test")
+                .build();
+        SecurityContextHolder.getContext().setAuthentication(
+                new JwtAuthenticationToken(jwt, java.util.List.of()));
     }
 
-    private void stubExistingOwner(Long id, Person owner) {
-        when(internalClient.check(USER_URL, PERSON_EXISTS, id)).thenReturn(true);
+    @AfterEach
+    void clearAuthentication() {
+        SecurityContextHolder.clearContext();
+    }
+
+    private void stubExistingOwner(Long id, Person owner, boolean admin) {
+        var response = admin
+                ? stubGet(USER_URL + PERSON_BY_ID, id)
+                : stubGet(USER_URL + MY_PROFILE);
+        when(response.body(Map.class)).thenReturn(Map.of("id", id));
         when(personRepository.getReferenceById(id)).thenReturn(owner);
     }
 
@@ -92,7 +117,7 @@ public class AccountServiceTest {
         Person owner = person();
         Account saved = account(1L);
 
-        stubExistingOwner(10L, owner);
+        stubExistingOwner(10L, owner, true);
         when(accountRepository.existsByAccountNumber("ACC-001")).thenReturn(false);
         when(accountRepository.saveAndFlush(any(Account.class))).thenReturn(saved);
         when(accountSecurity.currentPersonId()).thenReturn(10L);
@@ -110,14 +135,15 @@ public class AccountServiceTest {
         assertNotNull(submitted.getOpenedAt());
         assertEquals(0, submitted.getOpenedAt().getNano());
 
-        verify(internalClient, never()).check(eq(TRANSACTION_URL), anyString(), anyLong());
+        verify(uriSpec, never()).uri(
+                eq(TRANSACTION_URL + ACCOUNT_TRANSACTIONS), anyLong());
     }
 
     @Test
     void createWithoutPersonIdUsesCurrentPerson() {
         when(accountSecurity.currentPersonId()).thenReturn(10L);
         when(accountSecurity.isAdmin()).thenReturn(false);
-        stubExistingOwner(10L, person());
+        stubExistingOwner(10L, person(), false);
         when(accountRepository.saveAndFlush(any(Account.class))).thenAnswer((invocation -> invocation.getArgument(0)));
         AccountResponse response = accountService.create(new AccountCreateRequest(null, "ACC-SELF"));
         assertEquals(10L, response.personId());
@@ -129,7 +155,7 @@ public class AccountServiceTest {
     void userCreateAccountForSelf() {
         when(accountSecurity.currentPersonId()).thenReturn(10L);
         when(accountSecurity.isAdmin()).thenReturn(false);
-        stubExistingOwner(10L, person());
+        stubExistingOwner(10L, person(), false);
         when(accountRepository.saveAndFlush(any(Account.class))).thenAnswer((invocation -> invocation.getArgument(0)));
         AccountResponse response = accountService.create(validCreateRequest());
         assertEquals(10L, response.personId());
@@ -141,7 +167,7 @@ public class AccountServiceTest {
         when(accountSecurity.currentPersonId()).thenReturn(10L);
         when(accountSecurity.isAdmin()).thenReturn(false);
         assertThrows(AccessDeniedException.class, () -> accountService.create(new AccountCreateRequest(20L, "ACC-OTHER")));
-        verifyNoInteractions(personRepository, accountRepository, internalClient);
+        verifyNoInteractions(personRepository, accountRepository, restClient);
     }
 
     @Test
@@ -150,7 +176,7 @@ public class AccountServiceTest {
         ReflectionTestUtils.setField(other, "id", 20L);
         when(accountSecurity.currentPersonId()).thenReturn(10L);
         when(accountSecurity.isAdmin()).thenReturn(true);
-        stubExistingOwner(20L, other);
+        stubExistingOwner(20L, other, true);
         when(accountRepository.saveAndFlush(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
         AccountResponse response = accountService.create(new AccountCreateRequest(20L, "ACC-OTHER"));
         assertEquals(20L, response.personId());
@@ -158,7 +184,8 @@ public class AccountServiceTest {
 
     @Test
     void createMissingPerson() {
-        when(internalClient.check(USER_URL, PERSON_EXISTS, 10L)).thenReturn(false);
+        when(stubGet(USER_URL + PERSON_BY_ID, 10L).body(Map.class)).thenThrow(HttpClientErrorException.create(
+                        HttpStatus.NOT_FOUND, "Not Found", HttpHeaders.EMPTY, new byte[0], null));
         when(accountSecurity.currentPersonId()).thenReturn(10L);
         when(accountSecurity.isAdmin()).thenReturn(true);
         ApiException exception = assertThrows(ApiException.class, () -> accountService.create(validCreateRequest()));
@@ -168,20 +195,21 @@ public class AccountServiceTest {
 
     @Test
     void createDuplicateAccountNumber() {
-        stubExistingOwner(10L, person());
+        stubExistingOwner(10L, person(), true);
         when(accountRepository.existsByAccountNumber("ACC-001")).thenReturn(true);
         when(accountSecurity.currentPersonId()).thenReturn(10L);
         when(accountSecurity.isAdmin()).thenReturn(true);
         ApiException exception = assertThrows(ApiException.class, () -> accountService.create(validCreateRequest()));
         assertApiError(exception, HttpStatus.CONFLICT, "ACCOUNT_NUMBER_ALREADY_EXISTS");
         verify(accountRepository, never()).saveAndFlush(any(Account.class));
-        verify(internalClient, never()).check(eq(TRANSACTION_URL), anyString(), anyLong());
+        verify(uriSpec, never()).uri(
+                eq(TRANSACTION_URL + ACCOUNT_TRANSACTIONS), anyLong());
     }
 
     @Test
     void createAccountNumberWith30Characters() {
         String number = "a".repeat(30);
-        stubExistingOwner(10L, person());
+        stubExistingOwner(10L, person(), true);
         when(accountRepository.saveAndFlush(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(accountSecurity.currentPersonId()).thenReturn(10L);
         when(accountSecurity.isAdmin()).thenReturn(true);
@@ -278,7 +306,7 @@ public class AccountServiceTest {
         assertEquals(new BigDecimal("50.00"), existing.getBalance());
         verify(accountRepository).existsByAccountNumberAndIdNot("ACC-002", 1L);
         verify(accountRepository).saveAndFlush(existing);
-        verifyNoInteractions(personRepository, internalClient);
+        verifyNoInteractions(personRepository, restClient);
     }
 
     @Test
@@ -310,11 +338,11 @@ public class AccountServiceTest {
     void deleteValidAccount() {
         Account existing = account(1L);
         when(accountRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(existing));
-        when(internalClient.check(TRANSACTION_URL, ACCOUNT_TRANSACTIONS, 1L)).thenReturn(false);
+        when(stubGet(TRANSACTION_URL + ACCOUNT_TRANSACTIONS, 1L).body(List.class)).thenReturn(List.of());
         accountService.delete(1L);
-        var order = inOrder(accountRepository, internalClient);
+        var order = inOrder(accountRepository, restClient);
         order.verify(accountRepository).findByIdForUpdate(1L);
-        order.verify(internalClient).check(TRANSACTION_URL, ACCOUNT_TRANSACTIONS, 1L);
+        order.verify(restClient).get();
         order.verify(accountRepository).delete(existing);
         order.verify(accountRepository).flush();
         verifyNoInteractions(personRepository);
@@ -330,13 +358,13 @@ public class AccountServiceTest {
         assertApiError(exception, HttpStatus.CONFLICT, "ACCOUNT_BALANCE_NOT_ZERO");
         verify(accountRepository, never()).delete(any(Account.class));
         verify(accountRepository, never()).flush();
-        verifyNoInteractions(personRepository, internalClient);
+        verifyNoInteractions(personRepository, restClient);
     }
 
     @Test
     void deleteAccountWithTransactions() {
         when(accountRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(account(1L)));
-        when(internalClient.check(TRANSACTION_URL, ACCOUNT_TRANSACTIONS, 1L)).thenReturn(true);
+        when(stubGet(TRANSACTION_URL + ACCOUNT_TRANSACTIONS, 1L).body(List.class)).thenReturn(List.of(Map.of("id", 1L)));
         ApiException exception = assertThrows(ApiException.class, () -> accountService.delete(1L));
         assertApiError(exception, HttpStatus.CONFLICT, "ACCOUNT_HAS_TRANSACTION");
         verify(accountRepository, never()).delete(any(Account.class));
@@ -368,6 +396,16 @@ public class AccountServiceTest {
             verify(accountRepository).findById(1L);
         }
         verifyNoMoreInteractions(accountRepository);
-        verifyNoInteractions(personRepository, internalClient);
+        verifyNoInteractions(personRepository, restClient);
+    }
+
+    private RestClient.ResponseSpec stubGet(String url, Object... uriVariables) {
+        doReturn(uriSpec).when(restClient).get();
+        RestClient.RequestHeadersSpec<?> request = mock(RestClient.RequestHeadersSpec.class);
+        RestClient.ResponseSpec response = mock(RestClient.ResponseSpec.class);
+        doReturn(request).when(uriSpec).uri(url, uriVariables);
+        doReturn(request).when(request).headers(any());
+        when(request.retrieve()).thenReturn(response);
+        return response;
     }
 }
