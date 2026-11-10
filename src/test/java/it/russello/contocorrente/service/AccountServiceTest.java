@@ -228,7 +228,7 @@ public class AccountServiceTest {
         Pageable pageable = PageRequest.of(0, 10, Sort.by("id"));
         when(accountSecurity.isAdmin()).thenReturn(true);
         when(accountRepository.findAll(pageable)).thenReturn(new PageImpl<>(List.of(first, second), pageable, 2));
-        Page<AccountResponse> responses = accountService.findAll(pageable);
+        Page<AccountResponse> responses = accountService.findAll(pageable, null);
         assertEquals(List.of(new AccountResponse(1L, 10L, "ACC-001", OPENED_AT, new BigDecimal("0.00")),
                         new AccountResponse(2L, 10L, "ACC-002", OPENED_AT, new BigDecimal("50.00"))),
                 responses.getContent());
@@ -247,7 +247,7 @@ public class AccountServiceTest {
         when(accountSecurity.isAdmin()).thenReturn(false);
         when(accountSecurity.currentPersonId()).thenReturn(10L);
         when(accountRepository.findByPerson_Id(10L, pageable)).thenReturn(new PageImpl<>(List.of(ownAccount), pageable, 1));
-        Page<AccountResponse> responses = accountService.findAll(pageable);
+        Page<AccountResponse> responses = accountService.findAll(pageable, null);
         assertEquals(List.of(AccountResponse.from(ownAccount)), responses.getContent());
         assertEquals(1L, responses.getTotalElements());
         assertEquals(1, responses.getTotalPages());
@@ -261,7 +261,7 @@ public class AccountServiceTest {
         when(accountSecurity.isAdmin()).thenReturn(false);
         when(accountSecurity.currentPersonId()).thenReturn(10L);
         when(accountRepository.findByPerson_Id(10L, pageable)).thenReturn(Page.empty(pageable));
-        Page<AccountResponse> responses = accountService.findAll(pageable);
+        Page<AccountResponse> responses = accountService.findAll(pageable, null);
         assertTrue(responses.isEmpty());
         assertEquals(0L, responses.getTotalElements());
         assertEquals(0, responses.getTotalPages());

@@ -67,14 +67,13 @@ public class AccountService {
 
     @PreAuthorize("hasAnyRole('admin', 'user')")
     @Transactional(readOnly = true)
-    public Page<AccountResponse> findAll(Pageable pageable) {
-        Page<Account> accounts;
-        if (accountSecurity.isAdmin()) {
-            accounts = accountRepository.findAll(pageable);
-        } else {
-            Long personId = accountSecurity.currentPersonId();
-            accounts = accountRepository.findByPerson_Id(personId, pageable);
-        }
+    public Page<AccountResponse> findAll(Pageable pageable, Long personId) {
+        Long ownerId = accountSecurity.isAdmin()
+                ? personId
+                : accountSecurity.currentPersonId();
+        Page<Account> accounts = ownerId == null
+                ? accountRepository.findAll(pageable)
+                : accountRepository.findByPerson_Id(ownerId, pageable);
         return accounts.map(AccountResponse::from);
     }
 
