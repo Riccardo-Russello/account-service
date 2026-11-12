@@ -1,5 +1,6 @@
 package it.russello.contocorrente.controller;
 
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.web.client.RestClient;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import static org.mockito.ArgumentMatchers.any;
@@ -7,6 +8,8 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import it.russello.contocorrente.dto.PersonResponse;
+import it.russello.contocorrente.dto.TransactionListResponse;
 import it.russello.contocorrente.entity.Account;
 import it.russello.contocorrente.entity.Person;
 import it.russello.contocorrente.repository.AccountRepository;
@@ -26,7 +29,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
 
 import static it.russello.contocorrente.support.TestJwt.admin;
 import static it.russello.contocorrente.support.TestJwt.user;
@@ -73,8 +75,8 @@ class AuthorizationIT {
         empty = accountRepository.saveAndFlush(
                 new Account(owner, "AUTH-EMPTY"));
 
-        when(stubGet("http://user.test/api/person/{id}", owner.getId()).body(Map.class)).thenReturn(Map.of("id", owner.getId()));
-        when(stubGet("http://user.test/api/person/my_profile").body(Map.class)).thenReturn(Map.of("id", owner.getId()));
+        when(stubGet("http://user.test/api/person/{id}", owner.getId()).body(PersonResponse.class)).thenReturn(new PersonResponse(owner.getId(), null, null, null));
+        when(stubGet("http://user.test/api/person/my_profile").body(PersonResponse.class)).thenReturn(new PersonResponse(owner.getId(), null, null, null));
     }
 
     private Person savePerson(String username) {
@@ -155,7 +157,9 @@ class AuthorizationIT {
         };
 
         if ("ACCOUNT_DELETE".equals(operation)) {
-            when(stubGet("http://transaction.test/api/account/{id}/transaction", empty.getId()).body(List.class)).thenReturn(List.of());
+            when(stubGet("http://transaction.test/api/account/{id}/transaction", empty.getId())
+                    .body(new ParameterizedTypeReference<List<TransactionListResponse>>() {}))
+                    .thenReturn(List.of());
         }
 
         mockMvc.perform(operation(operation).with(admin(owner.getId())))

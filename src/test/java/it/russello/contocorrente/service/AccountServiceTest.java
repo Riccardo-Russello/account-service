@@ -1,10 +1,14 @@
 package it.russello.contocorrente.service;
 
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
+import it.russello.contocorrente.dto.PersonResponse;
+import it.russello.contocorrente.dto.TransactionListResponse;
+import it.russello.contocorrente.dto.TransactionType;
 import it.russello.contocorrente.dto.AccountBalanceResponse;
 import it.russello.contocorrente.dto.AccountCreateRequest;
 import it.russello.contocorrente.dto.AccountResponse;
@@ -35,7 +39,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -86,7 +89,7 @@ public class AccountServiceTest {
         var response = admin
                 ? stubGet(USER_URL + PERSON_BY_ID, id)
                 : stubGet(USER_URL + MY_PROFILE);
-        when(response.body(Map.class)).thenReturn(Map.of("id", id));
+        when(response.body(PersonResponse.class)).thenReturn(new PersonResponse(id, null, null, null));
         when(personRepository.getReferenceById(id)).thenReturn(owner);
     }
 
@@ -184,7 +187,7 @@ public class AccountServiceTest {
 
     @Test
     void createMissingPerson() {
-        when(stubGet(USER_URL + PERSON_BY_ID, 10L).body(Map.class)).thenThrow(HttpClientErrorException.create(
+        when(stubGet(USER_URL + PERSON_BY_ID, 10L).body(PersonResponse.class)).thenThrow(HttpClientErrorException.create(
                         HttpStatus.NOT_FOUND, "Not Found", HttpHeaders.EMPTY, new byte[0], null));
         when(accountSecurity.currentPersonId()).thenReturn(10L);
         when(accountSecurity.isAdmin()).thenReturn(true);
@@ -338,7 +341,9 @@ public class AccountServiceTest {
     void deleteValidAccount() {
         Account existing = account(1L);
         when(accountRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(existing));
-        when(stubGet(TRANSACTION_URL + ACCOUNT_TRANSACTIONS, 1L).body(List.class)).thenReturn(List.of());
+        when(stubGet(TRANSACTION_URL + ACCOUNT_TRANSACTIONS, 1L)
+                .body(new ParameterizedTypeReference<List<TransactionListResponse>>() {}))
+                .thenReturn(List.of());
         accountService.delete(1L);
         var order = inOrder(accountRepository, restClient);
         order.verify(accountRepository).findByIdForUpdate(1L);
@@ -364,7 +369,10 @@ public class AccountServiceTest {
     @Test
     void deleteAccountWithTransactions() {
         when(accountRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(account(1L)));
-        when(stubGet(TRANSACTION_URL + ACCOUNT_TRANSACTIONS, 1L).body(List.class)).thenReturn(List.of(Map.of("id", 1L)));
+        when(stubGet(TRANSACTION_URL + ACCOUNT_TRANSACTIONS, 1L)
+                .body(new ParameterizedTypeReference<List<TransactionListResponse>>() {}))
+                .thenReturn(List.of(new TransactionListResponse(
+                        1L, TransactionType.DEPOSIT, BigDecimal.ONE, null, 1L, null)));
         ApiException exception = assertThrows(ApiException.class, () -> accountService.delete(1L));
         assertApiError(exception, HttpStatus.CONFLICT, "ACCOUNT_HAS_TRANSACTION");
         verify(accountRepository, never()).delete(any(Account.class));

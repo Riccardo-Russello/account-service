@@ -1,5 +1,6 @@
 package it.russello.contocorrente.controller;
 
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.web.client.RestClient;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import static org.mockito.ArgumentMatchers.any;
@@ -8,6 +9,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.jayway.jsonpath.JsonPath;
+import it.russello.contocorrente.dto.PersonResponse;
+import it.russello.contocorrente.dto.TransactionListResponse;
+import it.russello.contocorrente.dto.TransactionType;
 import it.russello.contocorrente.entity.Account;
 import it.russello.contocorrente.entity.Person;
 import it.russello.contocorrente.repository.AccountRepository;
@@ -30,7 +34,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
 
 import static it.russello.contocorrente.support.TestJwt.admin;
 import static org.junit.jupiter.api.Assertions.*;
@@ -63,7 +66,7 @@ public class AccountControllerIT {
         person.setUsername("mario.rossi");
         person.setPassword("passwmario");
         personRepository.saveAndFlush(person);
-        when(stubGet("http://user.test/api/person/{id}", person.getId()).body(Map.class)).thenReturn(Map.of("id", person.getId()));
+        when(stubGet("http://user.test/api/person/{id}", person.getId()).body(PersonResponse.class)).thenReturn(new PersonResponse(person.getId(), null, null, null));
     }
 
     @Test
@@ -99,7 +102,7 @@ public class AccountControllerIT {
     @Test
     void createAccountForMissingPerson() throws Exception {
         var response = stubGet("http://user.test/api/person/{id}", Long.MAX_VALUE);
-        when(response.body(Map.class)).thenThrow(HttpClientErrorException.create(
+        when(response.body(PersonResponse.class)).thenThrow(HttpClientErrorException.create(
                 HttpStatus.NOT_FOUND, "Not Found", HttpHeaders.EMPTY, new byte[0], null));
 
         long before = accountRepository.count();
@@ -250,7 +253,9 @@ public class AccountControllerIT {
         Long id = account.getId();
         long counterBefore = accountRepository.count();
         entityManager.clear();
-        when(stubGet("http://transaction.test/api/account/{id}/transaction", id).body(List.class)).thenReturn(List.of());
+        when(stubGet("http://transaction.test/api/account/{id}/transaction", id)
+                .body(new ParameterizedTypeReference<List<TransactionListResponse>>() {}))
+                .thenReturn(List.of());
 
         mockMvc.perform(delete("/api/account/{id}", id).with(admin(person.getId())))
                 .andExpect(status().isNoContent())
@@ -301,7 +306,10 @@ public class AccountControllerIT {
     @Test
     void accountWithTransactionsCannotBeDeleted() throws Exception {
         Account account = accountRepository.saveAndFlush(new Account(person, "WITH-MOVEMENTS"));
-        when(stubGet("http://transaction.test/api/account/{id}/transaction", account.getId()).body(List.class)).thenReturn(List.of(Map.of("id", 1L)));
+        when(stubGet("http://transaction.test/api/account/{id}/transaction", account.getId())
+                .body(new ParameterizedTypeReference<List<TransactionListResponse>>() {}))
+                .thenReturn(List.of(new TransactionListResponse(
+                        1L, TransactionType.DEPOSIT, BigDecimal.ONE, null, 1L, null)));
 
         mockMvc.perform(delete("/api/account/{id}", account.getId())
                         .with(admin(person.getId())))

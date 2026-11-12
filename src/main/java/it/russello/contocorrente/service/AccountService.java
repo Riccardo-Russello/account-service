@@ -26,8 +26,11 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import java.util.List;
-import java.util.Map;
 import org.springframework.web.client.HttpClientErrorException;
+import it.russello.contocorrente.dto.PersonResponse;
+import it.russello.contocorrente.dto.TransactionListResponse;
+import org.springframework.core.ParameterizedTypeReference;
+import java.util.function.Function;
 
 import java.math.BigDecimal;
 
@@ -147,6 +150,16 @@ public class AccountService {
     }
 
     private <T> T getRemoteBody(String url, Class<T> bodyType, Object... uriVariables) {
+        return readRemoteBody(url, response -> response.body(bodyType), uriVariables);
+    }
+
+    private <T> T getRemoteBody(
+            String url, ParameterizedTypeReference<T> bodyType, Object... uriVariables) {
+        return readRemoteBody(url, response -> response.body(bodyType), uriVariables);
+    }
+
+    private <T> T readRemoteBody(
+            String url, Function<RestClient.ResponseSpec, T> readBody, Object... uriVariables) {
         var authentication = SecurityContextHolder.getContext().getAuthentication();
         if (!(authentication instanceof JwtAuthenticationToken jwt)
                 || !jwt.isAuthenticated()) {
@@ -155,16 +168,17 @@ public class AccountService {
         }
 
         try {
-            T result = restClient.get()
+            RestClient.ResponseSpec response = restClient.get()
                     .uri(url, uriVariables)
                     .headers(headers -> headers.setBearerAuth(jwt.getToken().getTokenValue()))
-                    .retrieve()
-                    .body(bodyType);
+                    .retrieve();
+
+            T result = readBody.apply(response);
             if (result != null) {
                 return result;
             }
         } catch (HttpClientErrorException.NotFound ex) {
-        throw ex;
+            throw ex;
         } catch (RestClientException ex) {
             throw upstreamUnavailable();
         }
@@ -181,14 +195,14 @@ public class AccountService {
 
     private boolean personExists(Long id) {
         try {
-            Map<?, ?> person = accountSecurity.isAdmin()
-                    ? getRemoteBody(userBaseUrl + "/api/person/{id}", Map.class, id)
-                    : getRemoteBody(userBaseUrl + "/api/person/my_profile", Map.class);
+            PersonResponse person = accountSecurity.isAdmin()
+                    ? getRemoteBody(userBaseUrl + "/api/person/{id}", PersonResponse.class, id)
+                    : getRemoteBody(userBaseUrl + "/api/person/my_profile", PersonResponse.class);
 
-            if (person.get("id") instanceof Number personId) {
-                return id.equals(personId.longValue());
+            if (person.id() == null) {
+                throw upstreamUnavailable();
             }
-            throw upstreamUnavailable();
+            return id.equals(person.id());
         } catch (HttpClientErrorException.NotFound ex) {
             return false;
         }
@@ -196,12 +210,13 @@ public class AccountService {
 
     private boolean hasTransactions(Long id) {
         try {
-            return !getRemoteBody(
-                    transactionBaseUrl + "/api/account/{id}/transaction", List.class, id)
-                    .isEmpty();
+            List<TransactionListResponse> transactions = getRemoteBody(
+                    transactionBaseUrl + "/api/account/{id}/transaction",
+                    new ParameterizedTypeReference<List<TransactionListResponse>>() {},
+                    id);
+            return !transactions.isEmpty();
         } catch (HttpClientErrorException.NotFound ex) {
             throw upstreamUnavailable();
         }
     }
-
 }
