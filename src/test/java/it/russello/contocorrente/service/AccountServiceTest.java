@@ -1,5 +1,6 @@
 package it.russello.contocorrente.service;
 
+import it.russello.contocorrente.client.AccountDependenciesClient;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -26,7 +27,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.*;
@@ -56,7 +56,7 @@ public class AccountServiceTest {
     private RestClient restClient;
     @Mock
     private AccountSecurity accountSecurity;
-    @InjectMocks
+
     private AccountService accountService;
 
     private static final String USER_URL = "http://user.test";
@@ -70,8 +70,10 @@ public class AccountServiceTest {
     @BeforeEach
     void configureClientUrls() {
         uriSpec = mock(RestClient.RequestHeadersUriSpec.class);
-        ReflectionTestUtils.setField(accountService, "userBaseUrl", USER_URL);
-        ReflectionTestUtils.setField(accountService, "transactionBaseUrl", TRANSACTION_URL);
+        var dependenciesClient = new AccountDependenciesClient(restClient, accountSecurity);
+        ReflectionTestUtils.setField(dependenciesClient, "userBaseUrl", USER_URL);
+        ReflectionTestUtils.setField(dependenciesClient, "transactionBaseUrl", TRANSACTION_URL);
+        accountService = new AccountService(accountRepository, personRepository, accountSecurity, dependenciesClient);
         var jwt = Jwt.withTokenValue("test-token")
                 .header("alg", "HS256")
                 .subject("test")

@@ -1,5 +1,6 @@
 package it.russello.contocorrente.service;
 
+import it.russello.contocorrente.client.AccountDependenciesClient;
 import it.russello.contocorrente.dto.AccountBalanceResponse;
 import it.russello.contocorrente.dto.AccountCreateRequest;
 import it.russello.contocorrente.dto.AccountResponse;
@@ -11,7 +12,6 @@ import it.russello.contocorrente.repository.AccountRepository;
 import it.russello.contocorrente.repository.PersonRepository;
 import it.russello.contocorrente.security.AccountSecurity;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -20,17 +20,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.parameters.P;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
-import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
-import java.util.List;
-import org.springframework.web.client.HttpClientErrorException;
-import it.russello.contocorrente.dto.PersonResponse;
-import it.russello.contocorrente.dto.TransactionListResponse;
-import org.springframework.core.ParameterizedTypeReference;
-import java.util.function.Function;
 
 import java.math.BigDecimal;
 
@@ -40,13 +29,7 @@ public class AccountService {
     private final AccountRepository accountRepository;
     private final PersonRepository personRepository;
     private final AccountSecurity accountSecurity;
-    private final RestClient restClient;
-
-    @Value("${clients.user.base-url}")
-    private String userBaseUrl;
-
-    @Value("${clients.transaction.base-url}")
-    private String transactionBaseUrl;
+    private final AccountDependenciesClient dependenciesClient;
 
     @PreAuthorize("hasAnyRole('admin', 'user')")
     public AccountResponse create(AccountCreateRequest request) {
@@ -55,7 +38,7 @@ public class AccountService {
         if (!accountSecurity.isAdmin() && !currentPersonId.equals(ownerPersonId)) {
             throw new AccessDeniedException("Puoi creare un conto soltanto per te stesso");
         }
-        if (!personExists(ownerPersonId)) {
+        if (!dependenciesClient.personExists(ownerPersonId)) {
             throw new ApiException(HttpStatus.NOT_FOUND, "PERSON_NOT_FOUND", "Persona non trovata");
         }
         Person person = personRepository.getReferenceById(ownerPersonId);
@@ -118,7 +101,7 @@ public class AccountService {
                     "ACCOUNT_BALANCE_NOT_ZERO",
                     "Conto può essere eliminato solo con saldo 0");
         }
-        if (hasTransactions(id)) {
+        if (dependenciesClient.hasTransactions(id)) {
             throw new ApiException(HttpStatus.CONFLICT,
                     "ACCOUNT_HAS_TRANSACTION",
                     "Il conto ha movimenti associati e non può essere eliminato");
@@ -149,74 +132,4 @@ public class AccountService {
                         HttpStatus.NOT_FOUND, "ACCOUNT_NOT_FOUND", "Conto non trovato"));
     }
 
-    private <T> T getRemoteBody(String url, Class<T> bodyType, Object... uriVariables) {
-        return readRemoteBody(url, response -> response.body(bodyType), uriVariables);
-    }
-
-    private <T> T getRemoteBody(
-            String url, ParameterizedTypeReference<T> bodyType, Object... uriVariables) {
-        return readRemoteBody(url, response -> response.body(bodyType), uriVariables);
-    }
-
-    private <T> T readRemoteBody(
-            String url, Function<RestClient.ResponseSpec, T> readBody, Object... uriVariables) {
-        var authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (!(authentication instanceof JwtAuthenticationToken jwt)
-                || !jwt.isAuthenticated()) {
-            throw new AuthenticationCredentialsNotFoundException(
-                    "Autenticazione JWT richiesta");
-        }
-
-        try {
-            RestClient.ResponseSpec response = restClient.get()
-                    .uri(url, uriVariables)
-                    .headers(headers -> headers.setBearerAuth(jwt.getToken().getTokenValue()))
-                    .retrieve();
-
-            T result = readBody.apply(response);
-            if (result != null) {
-                return result;
-            }
-        } catch (HttpClientErrorException.NotFound ex) {
-            throw ex;
-        } catch (RestClientException ex) {
-            throw upstreamUnavailable();
-        }
-
-        throw upstreamUnavailable();
-    }
-
-    private ApiException upstreamUnavailable() {
-        return new ApiException(
-                HttpStatus.SERVICE_UNAVAILABLE,
-                "UPSTREAM_UNAVAILABLE",
-                "Servizio remoto non disponibile");
-    }
-
-    private boolean personExists(Long id) {
-        try {
-            PersonResponse person = accountSecurity.isAdmin()
-                    ? getRemoteBody(userBaseUrl + "/api/person/{id}", PersonResponse.class, id)
-                    : getRemoteBody(userBaseUrl + "/api/person/my_profile", PersonResponse.class);
-
-            if (person.id() == null) {
-                throw upstreamUnavailable();
-            }
-            return id.equals(person.id());
-        } catch (HttpClientErrorException.NotFound ex) {
-            return false;
-        }
-    }
-
-    private boolean hasTransactions(Long id) {
-        try {
-            List<TransactionListResponse> transactions = getRemoteBody(
-                    transactionBaseUrl + "/api/account/{id}/transaction",
-                    new ParameterizedTypeReference<List<TransactionListResponse>>() {},
-                    id);
-            return !transactions.isEmpty();
-        } catch (HttpClientErrorException.NotFound ex) {
-            throw upstreamUnavailable();
-        }
-    }
 }
