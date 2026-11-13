@@ -1,6 +1,6 @@
 package it.russello.contocorrente.service;
 
-import it.russello.contocorrente.client.InternalClient;
+import it.russello.contocorrente.client.AccountDependenciesClient;
 import it.russello.contocorrente.dto.AccountBalanceResponse;
 import it.russello.contocorrente.dto.AccountCreateRequest;
 import it.russello.contocorrente.dto.AccountResponse;
@@ -12,7 +12,6 @@ import it.russello.contocorrente.repository.AccountRepository;
 import it.russello.contocorrente.repository.PersonRepository;
 import it.russello.contocorrente.security.AccountSecurity;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -30,13 +29,7 @@ public class AccountService {
     private final AccountRepository accountRepository;
     private final PersonRepository personRepository;
     private final AccountSecurity accountSecurity;
-    private final InternalClient internalClient;
-
-    @Value("${clients.user.base-url}")
-    private String userBaseUrl;
-
-    @Value("${clients.transaction.base-url}")
-    private String transactionBaseUrl;
+    private final AccountDependenciesClient dependenciesClient;
 
     @PreAuthorize("hasAnyRole('admin', 'user')")
     public AccountResponse create(AccountCreateRequest request) {
@@ -45,7 +38,7 @@ public class AccountService {
         if (!accountSecurity.isAdmin() && !currentPersonId.equals(ownerPersonId)) {
             throw new AccessDeniedException("Puoi creare un conto soltanto per te stesso");
         }
-        if (!internalClient.check(userBaseUrl, "/internal/persons/{id}/exists", ownerPersonId)) {
+        if (!dependenciesClient.personExists(ownerPersonId)) {
             throw new ApiException(HttpStatus.NOT_FOUND, "PERSON_NOT_FOUND", "Persona non trovata");
         }
         Person person = personRepository.getReferenceById(ownerPersonId);
@@ -60,14 +53,13 @@ public class AccountService {
 
     @PreAuthorize("hasAnyRole('admin', 'user')")
     @Transactional(readOnly = true)
-    public Page<AccountResponse> findAll(Pageable pageable) {
-        Page<Account> accounts;
-        if (accountSecurity.isAdmin()) {
-            accounts = accountRepository.findAll(pageable);
-        } else {
-            Long personId = accountSecurity.currentPersonId();
-            accounts = accountRepository.findByPerson_Id(personId, pageable);
-        }
+    public Page<AccountResponse> findAll(Pageable pageable, Long personId) {
+        Long ownerId = accountSecurity.isAdmin()
+                ? personId
+                : accountSecurity.currentPersonId();
+        Page<Account> accounts = ownerId == null
+                ? accountRepository.findAll(pageable)
+                : accountRepository.findByPerson_Id(ownerId, pageable);
         return accounts.map(AccountResponse::from);
     }
 
@@ -109,7 +101,7 @@ public class AccountService {
                     "ACCOUNT_BALANCE_NOT_ZERO",
                     "Conto può essere eliminato solo con saldo 0");
         }
-        if (internalClient.check(transactionBaseUrl, "/internal/transactions/by-account/{id}/exists", id)) {
+        if (dependenciesClient.hasTransactions(id)) {
             throw new ApiException(HttpStatus.CONFLICT,
                     "ACCOUNT_HAS_TRANSACTION",
                     "Il conto ha movimenti associati e non può essere eliminato");

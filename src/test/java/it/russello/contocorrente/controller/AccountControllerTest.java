@@ -20,6 +20,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -49,6 +50,8 @@ public class AccountControllerTest {
     private MockMvc mockMvc;
     @MockitoBean
     private AccountService accountService;
+    @MockitoBean
+    private RestClient restClient;
 
     private static AccountCreateRequest createRequest() {
         return new AccountCreateRequest(10L, "ACC-001");
@@ -80,7 +83,7 @@ public class AccountControllerTest {
     @Test
     void findAllAccounts() throws Exception {
         Pageable pageable = PageRequest.of(0, 10, Sort.by("id"));
-        when(accountService.findAll(pageable)).thenReturn(new PageImpl<>(List.of(response("ACC-001")), pageable, 1));
+        when(accountService.findAll(pageable, null)).thenReturn(new PageImpl<>(List.of(response("ACC-001")), pageable, 1));
         mockMvc.perform(get(BASE_URL))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
@@ -93,13 +96,13 @@ public class AccountControllerTest {
                 .andExpect(jsonPath("$.size").value(10))
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.totalPages").value(1));
-        verify(accountService).findAll(pageable);
+        verify(accountService).findAll(pageable, null);
     }
 
     @Test
     void findAllEmpty() throws Exception {
         Pageable pageable = PageRequest.of(0, 10, Sort.by("id"));
-        when(accountService.findAll(pageable)).thenReturn(Page.empty(pageable));
+        when(accountService.findAll(pageable, null)).thenReturn(Page.empty(pageable));
         mockMvc.perform(get(BASE_URL))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content").isEmpty())
@@ -107,13 +110,13 @@ public class AccountControllerTest {
                 .andExpect(jsonPath("$.size").value(10))
                 .andExpect(jsonPath("$.totalElements").value(0))
                 .andExpect(jsonPath("$.totalPages").value(0));
-        verify(accountService).findAll(pageable);
+        verify(accountService).findAll(pageable, null);
     }
 
     @Test
     void findAllUsesRequestedPaginationAndSort() throws Exception {
         Pageable pageable = PageRequest.of(1, 1, Sort.by(Sort.Direction.DESC, "balance"));
-        when(accountService.findAll(pageable)).thenReturn(new PageImpl<>(List.of(response("ACC-001")), pageable, 3));
+        when(accountService.findAll(pageable, null)).thenReturn(new PageImpl<>(List.of(response("ACC-001")), pageable, 3));
         mockMvc.perform(get(BASE_URL)
                         .param("page", "1")
                         .param("size", "1")
@@ -124,7 +127,7 @@ public class AccountControllerTest {
                 .andExpect(jsonPath("$.size").value(1))
                 .andExpect(jsonPath("$.totalElements").value(3))
                 .andExpect(jsonPath("$.totalPages").value(3));
-        verify(accountService).findAll(pageable);
+        verify(accountService).findAll(pageable, null);
     }
 
     @Test
@@ -293,12 +296,12 @@ public class AccountControllerTest {
 
     @Test
     void unexpectedInternalError() throws Exception {
-        when(accountService.findAll(any(Pageable.class))).thenThrow(new RuntimeException("Errore database"));
+        when(accountService.findAll(any(Pageable.class), isNull())).thenThrow(new RuntimeException("Errore database"));
         mockMvc.perform(get(BASE_URL))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
                 .andExpect(jsonPath("$.message").value("Errore interno durante l'operazione"));
-        verify(accountService).findAll(any(Pageable.class));
+        verify(accountService).findAll(any(Pageable.class), isNull());
     }
 
     @Test
