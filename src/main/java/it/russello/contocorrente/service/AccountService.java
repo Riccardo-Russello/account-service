@@ -1,6 +1,7 @@
 package it.russello.contocorrente.service;
 
-import it.russello.contocorrente.client.AccountClient;
+import it.russello.contocorrente.client.TransactionClient;
+import it.russello.contocorrente.client.UserClient;
 import it.russello.contocorrente.dto.AccountBalanceResponse;
 import it.russello.contocorrente.dto.AccountCreateRequest;
 import it.russello.contocorrente.dto.AccountResponse;
@@ -29,7 +30,8 @@ public class AccountService {
     private final AccountRepository accountRepository;
     private final PersonRepository personRepository;
     private final AccountSecurity accountSecurity;
-    private final AccountClient accountClient;
+    private final UserClient userClient;
+    private final TransactionClient transactionClient;
 
     @PreAuthorize("hasAnyRole('admin', 'user')")
     public AccountResponse create(AccountCreateRequest request) {
@@ -38,7 +40,7 @@ public class AccountService {
         if (!accountSecurity.isAdmin() && !currentPersonId.equals(ownerPersonId)) {
             throw new AccessDeniedException("Puoi creare un conto soltanto per te stesso");
         }
-        if (!accountClient.personExists(ownerPersonId)) {
+        if (!userClient.personExists(ownerPersonId)) {
             throw new ApiException(HttpStatus.NOT_FOUND, "PERSON_NOT_FOUND", "Persona non trovata");
         }
         Person person = personRepository.getReferenceById(ownerPersonId);
@@ -101,7 +103,7 @@ public class AccountService {
                     "ACCOUNT_BALANCE_NOT_ZERO",
                     "Conto può essere eliminato solo con saldo 0");
         }
-        if (accountClient.hasTransactions(id)) {
+        if (transactionClient.hasTransactions(id)) {
             throw new ApiException(HttpStatus.CONFLICT,
                     "ACCOUNT_HAS_TRANSACTION",
                     "Il conto ha movimenti associati e non può essere eliminato");

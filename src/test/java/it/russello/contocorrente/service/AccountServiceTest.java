@@ -1,6 +1,8 @@
 package it.russello.contocorrente.service;
 
-import it.russello.contocorrente.client.AccountClient;
+import it.russello.contocorrente.client.RemoteHttpClient;
+import it.russello.contocorrente.client.TransactionClient;
+import it.russello.contocorrente.client.UserClient;
 import it.russello.contocorrente.dto.*;
 import it.russello.contocorrente.entity.Account;
 import it.russello.contocorrente.entity.Person;
@@ -83,10 +85,12 @@ public class AccountServiceTest {
     @BeforeEach
     void configureClientUrls() {
         uriSpec = mock(RestClient.RequestHeadersUriSpec.class);
-        var accountClient = new AccountClient(restClient, accountSecurity);
-        ReflectionTestUtils.setField(accountClient, "userBaseUrl", USER_URL);
-        ReflectionTestUtils.setField(accountClient, "transactionBaseUrl", TRANSACTION_URL);
-        accountService = new AccountService(accountRepository, personRepository, accountSecurity, accountClient);
+        var remoteHttpClient = new RemoteHttpClient(restClient);
+        var userClient = new UserClient(remoteHttpClient, accountSecurity);
+        var transactionClient = new TransactionClient(remoteHttpClient);
+        ReflectionTestUtils.setField(userClient, "userBaseUrl", USER_URL);
+        ReflectionTestUtils.setField(transactionClient, "transactionBaseUrl", TRANSACTION_URL);
+        accountService = new AccountService(accountRepository, personRepository, accountSecurity, userClient, transactionClient);
         var jwt = Jwt.withTokenValue("test-token")
                 .header("alg", "HS256")
                 .subject("test")
