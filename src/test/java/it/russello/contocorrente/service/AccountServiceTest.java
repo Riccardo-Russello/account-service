@@ -1,19 +1,7 @@
 package it.russello.contocorrente.service;
 
-import it.russello.contocorrente.client.AccountDependenciesClient;
-import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
-import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.RestClient;
-import it.russello.contocorrente.dto.PersonResponse;
-import it.russello.contocorrente.dto.TransactionListResponse;
-import it.russello.contocorrente.dto.TransactionType;
-import it.russello.contocorrente.dto.AccountBalanceResponse;
-import it.russello.contocorrente.dto.AccountCreateRequest;
-import it.russello.contocorrente.dto.AccountResponse;
-import it.russello.contocorrente.dto.AccountUpdateRequest;
+import it.russello.contocorrente.client.AccountClient;
+import it.russello.contocorrente.dto.*;
 import it.russello.contocorrente.entity.Account;
 import it.russello.contocorrente.entity.Person;
 import it.russello.contocorrente.exception.ApiException;
@@ -29,11 +17,17 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.data.domain.*;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -48,6 +42,11 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 public class AccountServiceTest {
     private static final LocalDateTime OPENED_AT = LocalDateTime.of(2026, 1, 10, 12, 0);
+    private static final String USER_URL = "http://user.test";
+    private static final String TRANSACTION_URL = "http://transaction.test";
+    private static final String PERSON_BY_ID = "/api/person/{id}";
+    private static final String MY_PROFILE = "/api/person/my_profile";
+    private static final String ACCOUNT_TRANSACTIONS = "/api/account/{id}/transaction";
     @Mock
     private AccountRepository accountRepository;
     @Mock
@@ -56,44 +55,8 @@ public class AccountServiceTest {
     private RestClient restClient;
     @Mock
     private AccountSecurity accountSecurity;
-
     private AccountService accountService;
-
-    private static final String USER_URL = "http://user.test";
-    private static final String TRANSACTION_URL = "http://transaction.test";
-    private static final String PERSON_BY_ID = "/api/person/{id}";
-    private static final String MY_PROFILE = "/api/person/my_profile";
-    private static final String ACCOUNT_TRANSACTIONS = "/api/account/{id}/transaction";
-
     private RestClient.RequestHeadersUriSpec<?> uriSpec;
-
-    @BeforeEach
-    void configureClientUrls() {
-        uriSpec = mock(RestClient.RequestHeadersUriSpec.class);
-        var dependenciesClient = new AccountDependenciesClient(restClient, accountSecurity);
-        ReflectionTestUtils.setField(dependenciesClient, "userBaseUrl", USER_URL);
-        ReflectionTestUtils.setField(dependenciesClient, "transactionBaseUrl", TRANSACTION_URL);
-        accountService = new AccountService(accountRepository, personRepository, accountSecurity, dependenciesClient);
-        var jwt = Jwt.withTokenValue("test-token")
-                .header("alg", "HS256")
-                .subject("test")
-                .build();
-        SecurityContextHolder.getContext().setAuthentication(
-                new JwtAuthenticationToken(jwt, java.util.List.of()));
-    }
-
-    @AfterEach
-    void clearAuthentication() {
-        SecurityContextHolder.clearContext();
-    }
-
-    private void stubExistingOwner(Long id, Person owner, boolean admin) {
-        var response = admin
-                ? stubGet(USER_URL + PERSON_BY_ID, id)
-                : stubGet(USER_URL + MY_PROFILE);
-        when(response.body(PersonResponse.class)).thenReturn(new PersonResponse(id, null, null, null));
-        when(personRepository.getReferenceById(id)).thenReturn(owner);
-    }
 
     private static Person person() {
         Person person = new Person("Mario", "Rossi", LocalDate.of(1990, 5, 15));
@@ -115,6 +78,34 @@ public class AccountServiceTest {
     private static void assertApiError(ApiException exception, HttpStatus status, String code) {
         assertEquals(status, exception.getStatus());
         assertEquals(code, exception.getCode());
+    }
+
+    @BeforeEach
+    void configureClientUrls() {
+        uriSpec = mock(RestClient.RequestHeadersUriSpec.class);
+        var accountClient = new AccountClient(restClient, accountSecurity);
+        ReflectionTestUtils.setField(accountClient, "userBaseUrl", USER_URL);
+        ReflectionTestUtils.setField(accountClient, "transactionBaseUrl", TRANSACTION_URL);
+        accountService = new AccountService(accountRepository, personRepository, accountSecurity, accountClient);
+        var jwt = Jwt.withTokenValue("test-token")
+                .header("alg", "HS256")
+                .subject("test")
+                .build();
+        SecurityContextHolder.getContext().setAuthentication(
+                new JwtAuthenticationToken(jwt, java.util.List.of()));
+    }
+
+    @AfterEach
+    void clearAuthentication() {
+        SecurityContextHolder.clearContext();
+    }
+
+    private void stubExistingOwner(Long id, Person owner, boolean admin) {
+        var response = admin
+                ? stubGet(USER_URL + PERSON_BY_ID, id)
+                : stubGet(USER_URL + MY_PROFILE);
+        when(response.body(PersonResponse.class)).thenReturn(new PersonResponse(id, null, null, null));
+        when(personRepository.getReferenceById(id)).thenReturn(owner);
     }
 
     @Test
@@ -190,7 +181,7 @@ public class AccountServiceTest {
     @Test
     void createMissingPerson() {
         when(stubGet(USER_URL + PERSON_BY_ID, 10L).body(PersonResponse.class)).thenThrow(HttpClientErrorException.create(
-                        HttpStatus.NOT_FOUND, "Not Found", HttpHeaders.EMPTY, new byte[0], null));
+                HttpStatus.NOT_FOUND, "Not Found", HttpHeaders.EMPTY, new byte[0], null));
         when(accountSecurity.currentPersonId()).thenReturn(10L);
         when(accountSecurity.isAdmin()).thenReturn(true);
         ApiException exception = assertThrows(ApiException.class, () -> accountService.create(validCreateRequest()));
@@ -344,7 +335,8 @@ public class AccountServiceTest {
         Account existing = account(1L);
         when(accountRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(existing));
         when(stubGet(TRANSACTION_URL + ACCOUNT_TRANSACTIONS, 1L)
-                .body(new ParameterizedTypeReference<List<TransactionListResponse>>() {}))
+                .body(new ParameterizedTypeReference<List<TransactionListResponse>>() {
+                }))
                 .thenReturn(List.of());
         accountService.delete(1L);
         var order = inOrder(accountRepository, restClient);
@@ -372,7 +364,8 @@ public class AccountServiceTest {
     void deleteAccountWithTransactions() {
         when(accountRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(account(1L)));
         when(stubGet(TRANSACTION_URL + ACCOUNT_TRANSACTIONS, 1L)
-                .body(new ParameterizedTypeReference<List<TransactionListResponse>>() {}))
+                .body(new ParameterizedTypeReference<List<TransactionListResponse>>() {
+                }))
                 .thenReturn(List.of(new TransactionListResponse(
                         1L, TransactionType.DEPOSIT, BigDecimal.ONE, null, 1L, null)));
         ApiException exception = assertThrows(ApiException.class, () -> accountService.delete(1L));

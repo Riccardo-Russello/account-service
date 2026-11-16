@@ -21,7 +21,7 @@ import java.util.function.Function;
 
 @Component
 @RequiredArgsConstructor
-public class AccountDependenciesClient {
+public class AccountClient {
     private final RestClient restClient;
     private final AccountSecurity accountSecurity;
 
@@ -50,7 +50,8 @@ public class AccountDependenciesClient {
         try {
             List<TransactionListResponse> transactions = getRemoteBody(
                     transactionBaseUrl + "/api/account/{id}/transaction",
-                    new ParameterizedTypeReference<List<TransactionListResponse>>() {},
+                    new ParameterizedTypeReference<List<TransactionListResponse>>() {
+                    },
                     id);
             return !transactions.isEmpty();
         } catch (HttpClientErrorException.NotFound ex) {

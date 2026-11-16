@@ -1,13 +1,5 @@
 package it.russello.contocorrente.controller;
 
-import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.web.client.RestClient;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
-
 import it.russello.contocorrente.dto.PersonResponse;
 import it.russello.contocorrente.dto.TransactionListResponse;
 import it.russello.contocorrente.entity.Account;
@@ -21,10 +13,13 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -33,6 +28,8 @@ import java.util.List;
 import static it.russello.contocorrente.support.TestJwt.admin;
 import static it.russello.contocorrente.support.TestJwt.user;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -158,7 +155,8 @@ class AuthorizationIT {
 
         if ("ACCOUNT_DELETE".equals(operation)) {
             when(stubGet("http://transaction.test/api/account/{id}/transaction", empty.getId())
-                    .body(new ParameterizedTypeReference<List<TransactionListResponse>>() {}))
+                    .body(new ParameterizedTypeReference<List<TransactionListResponse>>() {
+                    }))
                     .thenReturn(List.of());
         }
 

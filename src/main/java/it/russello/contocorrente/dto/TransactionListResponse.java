@@ -10,4 +10,5 @@ public record TransactionListResponse(
         LocalDateTime occurredAt,
         Long sourceAccountId,
         Long destinationAccountId
-) {}
+) {
+}

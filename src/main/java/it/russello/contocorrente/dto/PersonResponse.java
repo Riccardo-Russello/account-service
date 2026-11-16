@@ -7,4 +7,5 @@ public record PersonResponse(
         String firstName,
         String lastName,
         LocalDate dateOfBirth
-) {}
+) {
+}
