@@ -1,7 +1,5 @@
 package it.russello.contocorrente.controller;
 
-import it.russello.contocorrente.dto.PersonResponse;
-import it.russello.contocorrente.dto.TransactionListResponse;
 import it.russello.contocorrente.entity.Account;
 import it.russello.contocorrente.entity.Person;
 import it.russello.contocorrente.repository.AccountRepository;
@@ -13,28 +11,30 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.RestClient;
-
+import org.wiremock.spring.ConfigureWireMock;
+import org.wiremock.spring.EnableWireMock;
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.List;
 
 import static it.russello.contocorrente.support.TestJwt.admin;
 import static it.russello.contocorrente.support.TestJwt.user;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
+@EnableWireMock(@ConfigureWireMock(
+        baseUrlProperties = {
+                "clients.user.base-url",
+                "clients.transaction.base-url"
+        },
+        filesUnderClasspath = "wiremock"
+))
 @AutoConfigureMockMvc
 @Transactional
 class AuthorizationIT {
@@ -45,8 +45,6 @@ class AuthorizationIT {
     PersonRepository personRepository;
     @Autowired
     AccountRepository accountRepository;
-    @MockitoBean
-    RestClient restClient;
 
     Person owner;
     Person other;
@@ -54,11 +52,8 @@ class AuthorizationIT {
     Account destination;
     Account empty;
 
-    private RestClient.RequestHeadersUriSpec<?> uriSpec;
-
     @BeforeEach
     void setUp() {
-        uriSpec = mock(RestClient.RequestHeadersUriSpec.class);
         owner = savePerson("auth.owner");
         other = savePerson("auth.other");
 
@@ -71,9 +66,6 @@ class AuthorizationIT {
 
         empty = accountRepository.saveAndFlush(
                 new Account(owner, "AUTH-EMPTY"));
-
-        when(stubGet("http://user.test/api/person/{id}", owner.getId()).body(PersonResponse.class)).thenReturn(new PersonResponse(owner.getId(), null, null, null));
-        when(stubGet("http://user.test/api/person/my_profile").body(PersonResponse.class)).thenReturn(new PersonResponse(owner.getId(), null, null, null));
     }
 
     private Person savePerson(String username) {
@@ -152,13 +144,6 @@ class AuthorizationIT {
             case "ACCOUNT_DELETE" -> 204;
             default -> 200;
         };
-
-        if ("ACCOUNT_DELETE".equals(operation)) {
-            when(stubGet("http://transaction.test/api/account/{id}/transaction", empty.getId())
-                    .body(new ParameterizedTypeReference<List<TransactionListResponse>>() {
-                    }))
-                    .thenReturn(List.of());
-        }
 
         mockMvc.perform(operation(operation).with(admin(owner.getId())))
                 .andExpect(status().is(expected));
@@ -241,13 +226,4 @@ class AuthorizationIT {
                 .andExpect(status().isForbidden());
     }
 
-    private RestClient.ResponseSpec stubGet(String url, Object... uriVariables) {
-        doReturn(uriSpec).when(restClient).get();
-        RestClient.RequestHeadersSpec<?> request = mock(RestClient.RequestHeadersSpec.class);
-        RestClient.ResponseSpec response = mock(RestClient.ResponseSpec.class);
-        doReturn(request).when(uriSpec).uri(url, uriVariables);
-        doReturn(request).when(request).headers(any());
-        when(request.retrieve()).thenReturn(response);
-        return response;
-    }
 }

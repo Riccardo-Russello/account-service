@@ -1,0 +1,27 @@
+{
+  "scenarioName": "account-transactions",
+  "requiredScenarioState": "WithTransactions",
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/api/account/[0-9]+/transaction",
+    "headers": {
+      "Authorization": {
+        "matches": "Bearer .+"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": [
+      {
+        "id": 1,
+        "type": "DEPOSIT",
+        "amount": 1,
+        "sourceAccountId": 1
+      }
+    ]
+  }
+}

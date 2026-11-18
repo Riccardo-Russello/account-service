@@ -1,0 +1,10 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "GET",
+    "urlPath": "/api/person/9223372036854775807"
+  },
+  "response": {
+    "status": 404
+  }
+}

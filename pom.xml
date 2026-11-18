@@ -102,6 +102,13 @@
             <artifactId>h2</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <dependency>
+            <groupId>org.wiremock.integrations</groupId>
+            <artifactId>wiremock-spring-boot</artifactId>
+            <version>4.0.9</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

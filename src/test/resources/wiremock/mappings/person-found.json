@@ -1,0 +1,22 @@
+{
+  "priority": 10,
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/api/person/[0-9]+",
+    "headers": {
+      "Authorization": {
+        "matches": "Bearer .+"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": "{\"id\": {{request.pathSegments.[2]}} }",
+    "transformers": [
+      "response-template"
+    ]
+  }
+}

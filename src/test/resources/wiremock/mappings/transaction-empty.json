@@ -1,0 +1,20 @@
+{
+  "scenarioName": "account-transactions",
+  "requiredScenarioState": "Started",
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/api/account/[0-9]+/transaction",
+    "headers": {
+      "Authorization": {
+        "matches": "Bearer .+"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": []
+  }
+}

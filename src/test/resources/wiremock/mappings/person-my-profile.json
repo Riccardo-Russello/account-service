@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "GET",
+    "urlPath": "/api/person/my_profile",
+    "headers": {
+      "Authorization": {
+        "matches": "Bearer [0-9]+"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": "{\"id\": {{regexExtract request.headers.Authorization.[0] '[0-9]+'}} }",
+    "transformers": [
+      "response-template"
+    ]
+  }
+}

@@ -20,6 +20,7 @@ public final class TestJwt {
     public static RequestPostProcessor user(Long personId) {
         return jwt()
                 .jwt(builder -> builder
+                        .tokenValue(personId.toString())
                         .subject("test.user")
                         .claim("personId", personId.toString()))
                 .authorities(new SimpleGrantedAuthority("ROLE_user"));
