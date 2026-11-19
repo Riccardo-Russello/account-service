@@ -1,14 +1,13 @@
 package it.russello.contocorrente.controller;
 
+import com.github.tomakehurst.wiremock.WireMockServer;
 import com.jayway.jsonpath.JsonPath;
-import it.russello.contocorrente.dto.PersonResponse;
-import it.russello.contocorrente.dto.TransactionListResponse;
-import it.russello.contocorrente.dto.TransactionType;
 import it.russello.contocorrente.entity.Account;
 import it.russello.contocorrente.entity.Person;
 import it.russello.contocorrente.repository.AccountRepository;
 import it.russello.contocorrente.repository.PersonRepository;
 import jakarta.persistence.EntityManager;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -16,54 +15,51 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.RestClient;
+import org.wiremock.spring.ConfigureWireMock;
+import org.wiremock.spring.EnableWireMock;
+import org.wiremock.spring.InjectWireMock;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.List;
 
 import static it.russello.contocorrente.support.TestJwt.admin;
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest
+@EnableWireMock(@ConfigureWireMock(
+        baseUrlProperties = {
+                "clients.user.base-url",
+                "clients.transaction.base-url"
+        },
+        filesUnderClasspath = "wiremock"
+))
 @AutoConfigureMockMvc
 @Transactional
 public class AccountControllerIT {
     @Autowired
     private MockMvc mockMvc;
+    @InjectWireMock
+    private WireMockServer wireMock;
     @Autowired
     private AccountRepository accountRepository;
     @Autowired
     private PersonRepository personRepository;
     @Autowired
     private EntityManager entityManager;
-    @MockitoBean
-    private RestClient restClient;
 
     private Person person;
 
-    private RestClient.RequestHeadersUriSpec<?> uriSpec;
-
     @BeforeEach
     void setUp() {
-        uriSpec = mock(RestClient.RequestHeadersUriSpec.class);
         person = new Person("Mario", "Rossi", LocalDate.of(1990, 5, 15));
         person.setUsername("mario.rossi");
         person.setPassword("passwmario");
         personRepository.saveAndFlush(person);
-        when(stubGet("http://user.test/api/person/{id}", person.getId()).body(PersonResponse.class)).thenReturn(new PersonResponse(person.getId(), null, null, null));
     }
 
     @Test
@@ -98,10 +94,6 @@ public class AccountControllerIT {
 
     @Test
     void createAccountForMissingPerson() throws Exception {
-        var response = stubGet("http://user.test/api/person/{id}", Long.MAX_VALUE);
-        when(response.body(PersonResponse.class)).thenThrow(HttpClientErrorException.create(
-                HttpStatus.NOT_FOUND, "Not Found", HttpHeaders.EMPTY, new byte[0], null));
-
         long before = accountRepository.count();
         mockMvc.perform(post("/api/account")
                         .with(admin(person.getId()))
@@ -250,10 +242,6 @@ public class AccountControllerIT {
         Long id = account.getId();
         long counterBefore = accountRepository.count();
         entityManager.clear();
-        when(stubGet("http://transaction.test/api/account/{id}/transaction", id)
-                .body(new ParameterizedTypeReference<List<TransactionListResponse>>() {
-                }))
-                .thenReturn(List.of());
 
         mockMvc.perform(delete("/api/account/{id}", id).with(admin(person.getId())))
                 .andExpect(status().isNoContent())
@@ -304,11 +292,7 @@ public class AccountControllerIT {
     @Test
     void accountWithTransactionsCannotBeDeleted() throws Exception {
         Account account = accountRepository.saveAndFlush(new Account(person, "WITH-MOVEMENTS"));
-        when(stubGet("http://transaction.test/api/account/{id}/transaction", account.getId())
-                .body(new ParameterizedTypeReference<List<TransactionListResponse>>() {
-                }))
-                .thenReturn(List.of(new TransactionListResponse(
-                        1L, TransactionType.DEPOSIT, BigDecimal.ONE, null, 1L, null)));
+        wireMock.setScenarioState("account-transactions", "WithTransactions");
 
         mockMvc.perform(delete("/api/account/{id}", account.getId())
                         .with(admin(person.getId())))
@@ -319,13 +303,8 @@ public class AccountControllerIT {
         assertTrue(accountRepository.existsById(account.getId()));
     }
 
-    private RestClient.ResponseSpec stubGet(String url, Object... uriVariables) {
-        doReturn(uriSpec).when(restClient).get();
-        RestClient.RequestHeadersSpec<?> request = mock(RestClient.RequestHeadersSpec.class);
-        RestClient.ResponseSpec response = mock(RestClient.ResponseSpec.class);
-        doReturn(request).when(uriSpec).uri(url, uriVariables);
-        doReturn(request).when(request).headers(any());
-        when(request.retrieve()).thenReturn(response);
-        return response;
+    @AfterEach
+    void resetTransactionScenario() {
+        wireMock.resetScenario("account-transactions");
     }
 }
