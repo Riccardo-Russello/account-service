@@ -5,7 +5,6 @@ CREATE TABLE account
     account_number VARCHAR(30)    NOT NULL,
     opened_at      DATETIME       NOT NULL,
     balance        DECIMAL(15, 2) NOT NULL,
-    booked_balance DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
     PRIMARY KEY (id),
     UNIQUE KEY uk_account_number (account_number),
     CONSTRAINT fk_account_person

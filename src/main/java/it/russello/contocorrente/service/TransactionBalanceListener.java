@@ -19,10 +19,19 @@ public class TransactionBalanceListener {
     public void updateBalance(String transactionId) {
         jdbc.update("""
                 UPDATE account a
-                JOIN accounttransaction t
-                    ON a.id IN (t.account_id, t.destination_account_id)
-                SET a.balance = a.booked_balance
-                WHERE t.id = ?
+                JOIN accounttransaction event
+                  ON a.id IN (event.account_id, event.destination_account_id)
+                SET a.balance = (
+                    SELECT COALESCE(SUM(CASE
+                        WHEN movement.destination_account_id = a.id THEN movement.amount
+                        WHEN movement.type = 'DEPOSIT' THEN movement.amount
+                        ELSE -movement.amount
+                    END), 0.00)
+                    FROM accounttransaction movement
+                    WHERE movement.account_id = a.id
+                       OR movement.destination_account_id = a.id
+                )
+                WHERE event.id = ?
                 """, Long.parseLong(transactionId));
     }
 
